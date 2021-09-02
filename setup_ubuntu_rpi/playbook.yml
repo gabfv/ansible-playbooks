@@ -68,6 +68,6 @@
         direction: incoming
 
 # Set the hostname
-   - name: Set a hostname
-     ansible.builtin.hostname:
+    - name: Set a hostname
+      ansible.builtin.hostname:
         name: web01     
