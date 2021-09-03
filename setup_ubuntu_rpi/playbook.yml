@@ -71,3 +71,22 @@
     - name: Set a hostname
       ansible.builtin.hostname:
         name: web01     
+
+# Set some username password
+    - name: Generate a unique password
+      set_fact:
+        generated_password: "{{ lookup('password', '~/' + inventory_hostname + '/password length=15') }}"
+    - name: Encrypt password in variable
+      set_fact:
+        ENCPW: "{{ generated_password | password_hash('sha512') }}"
+    - name: Check for user {{ default_username }} 
+      getent:
+        database: passwd
+        key: "{{ default_username }}"
+      register: user_exists
+    - name: Set {{ default_username }} password.
+      user:
+        name: "{{ default_username }}"
+        update_password: always
+        password: "{{ ENCPW }}"
+      when: (user_exists.failed == false)
