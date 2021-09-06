@@ -7,6 +7,15 @@
   vars_files:
     - vars/default.yml
 
+  vars:
+    # Temporary until I figure out a better way to lookup password
+    ansible_ssh_pass: "{{ lookup('file', '~/hosts/' + inventory_hostname + '/password') }}"
+    ssh_key_filename: "{{ default_username + '@' + inventory_hostname }}"
+
+  vars_prompt:
+    - name: "ssh_passphrase"
+      prompt: "Enter the passphrase for the SSH key"
+
   tasks:
     - name: Install Prerequisites
       apt: name=aptitude update_cache=yes state=latest force_apt_get=yes
@@ -75,7 +84,16 @@
 # Set some username password
     - name: Generate a unique password
       set_fact:
-        generated_password: "{{ lookup('password', '~/' + inventory_hostname + '/password length=15') }}"
+        generated_password: "{{ lookup('password', '~/hosts/' + inventory_hostname + '/password length=24') }}"
+
+# Secure the password file
+    - name: Secure the password file
+      connection: local
+      become: false
+      file:
+        path: ~/hosts/{{ inventory_hostname }}/password
+        mode: '0400'
+
     - name: Encrypt password in variable
       set_fact:
         ENCPW: "{{ generated_password | password_hash('sha512') }}"
@@ -90,3 +108,52 @@
         update_password: always
         password: "{{ ENCPW }}"
       when: (user_exists.failed == false)
+
+# Generate SSH key
+    - name: generate SSH key "{{ ssh_key_filename }}"
+      user:
+        name: "{{ default_username }}"
+        generate_ssh_key: yes
+        ssh_key_type: rsa
+        ssh_key_bits: 8192
+        ssh_key_file: .ssh/{{ssh_key_filename}}
+        ssh_key_passphrase: "{{ ssh_passphrase }}"
+        force: no
+
+# Fetch the private SSH key
+    - name: Fetch the private SSH key "{{ ssh_key_filename }}"
+      ansible.builtin.fetch:
+        src: .ssh/{{ ssh_key_filename }}
+        dest: ~/hosts/{{ inventory_hostname }}/
+        flat: yes
+
+# Secure the SSH private key
+    - name: Secure the SSH private key
+      connection: local
+      become: false
+      file:
+        path: ~/hosts/{{ inventory_hostname }}/{{ ssh_key_filename }}
+        mode: '400'
+
+# Fetch the public SSH key
+    - name: Fetch the public SSH key "{{ ssh_key_filename }}"
+      ansible.builtin.fetch:
+        src: .ssh/{{ ssh_key_filename }}.pub
+        dest: ~/hosts/{{ inventory_hostname }}/
+        flat: yes
+
+# Secure the SSH public key
+    - name: Secure the SSH public key
+      connection: local
+      become: false
+      file:
+        path: ~/hosts/{{ inventory_hostname }}/{{ ssh_key_filename }}.pub
+        mode: '400'        
+
+# Set the authorised key for the user {{ default_username }}
+    - name: Set the authorised key for the user "{{ default_username }}"
+      authorized_key:
+        user: "{{ default_username }}"
+        state: present
+        key: "{{ lookup('file', '~/hosts/' + inventory_hostname + '/' + ssh_key_filename + '.pub') }}"
+
